@@ -13,3 +13,19 @@ python -m pip install ydl-ipc
 
 TODO
 
+Example (sender):
+```
+from ydl import YDLClient
+
+YDL = YDLClient()
+YDL.send("channel1", "cheese")
+```
+
+Example (receiver):
+```
+from ydl import YDLClient
+
+YDL = YDLClient(["channel1"])
+print(YDL.receive())
+# prints ('channel1', 'cheese', {})
+```
