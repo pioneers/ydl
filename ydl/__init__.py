@@ -6,4 +6,5 @@ Import ydl_send and stuff (TODO: docs)
 
 """
 
-from core import ydl_send, ydl_start_read
+from ._core import YDLClient, DEFAULT_YDL_ADDR
+from ._header import header

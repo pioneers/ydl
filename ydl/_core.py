@@ -9,87 +9,84 @@ import time
 # from ydl import ydl_send, ydl_start_read
 # since only those two methods are meant for public consumption
 
-DEFAULT_SERVER_ADDR = ('127.0.0.1', 5001) # doesn't need to be available on network
-CLIENT_THREAD = None
+DEFAULT_YDL_ADDR = ('127.0.0.1', 5001) # doesn't need to be available on network
 
-def ydl_start_read(receive_channel, queue, put_json=False):
-    '''
-    Takes in receiving channel name (string), queue (Python queue object).
-    Takes whether to add received items to queue as JSON or Python dict.
-    Creates thread that receives any message to receiving channel and adds
-    it to queue as tuple (header, dict). Multiple calls to ydl_start_read
-    with the same target will replace the old queue.
-    header: string
-    dict: Python dictionary
-    '''
-    start_client_thread_if_not_alive()
-    if receive_channel not in CLIENT_THREAD.open_targets:
-        send_message(CLIENT_THREAD.conn, receive_channel, "")
-        # sending an empty string is a special message that means "subscribe to channel"
-    CLIENT_THREAD.open_targets[receive_channel] = (queue, put_json)
+class YDLClient():
+    def __init__(self, receive_channels=(), put_json=False, socket_address=DEFAULT_YDL_ADDR):
+        '''
+        Takes in a list of receiving channel names (string).
+        Takes whether to return received items as JSON or Python dict.
+        Waits for connection to open.
+        '''
+        self.receive_channels = receive_channels
+        self.put_json = put_json
+        self.socket_address = socket_address
+        self.lock = threading.Lock()
+        self.conn = None
+        if not (isinstance(receive_channels, list) or isinstance(receive_channels, tuple)):
+            raise RuntimeError("receive channels should be a list or tuple of channels")
+        self._new_connection()
+        
+    def send(self, target_channel, header, dic=None):
+        '''
+        Send header and dictionary to target channel (string)
+        header: string
+        dict: Python dictionary
+        '''
+        if dic is None:
+            dic = {}
+        json_str = json.dumps([header, dic])
+        try:
+            send_message(self.conn, target_channel, json_str)
+        except BrokenPipeError:
+            self._new_connection()
+    
+    def receive(self):
+        '''
+        Blocks while waiting for next message. Not entirely thread safe; 
+        should be reseliant to concurrent send() calls but not concurrent receive() calls. 
+        '''
+        while True:
+            while True:
+                selobj_iter = iter(self.selobj)
+                try:
+                    target, message = next(selobj_iter)
+                except StopIteration:
+                    pass
+                else:
+                    if self.put_json:
+                        return (target, message)
+                    else:
+                        return (target,) + tuple(json.loads(message))
 
-def ydl_send(target_channel, header, dic=None):
-    '''
-    Send header and dictionary to target channel (string)
-    '''
-    start_client_thread_if_not_alive()
-    if dic is None:
-        dic = {}
-    json_str = json.dumps([header, dic])
-    send_message(CLIENT_THREAD.conn, target_channel, json_str)
+                try: # try statement needed because windows sucks and throws an 10054 
+                    # connection reset error rather than just returning a 0 byte.
+                    data = self.conn.recv(1024)  # block
+                except ConnectionResetError:
+                    data = []
+                if len(data) == 0:
+                    break
+                else:
+                    self.selobj.inb += data
+            self._new_connection()
 
-
-
-def start_client_thread_if_not_alive():
-    '''
-    (internal use only)
-    '''
-    global CLIENT_THREAD
-    if CLIENT_THREAD is None:
-        CLIENT_THREAD = ClientThread()
-        CLIENT_THREAD.start()
-
-class ClientThread(threading.Thread):
-    '''
-    (internal use only)
-    A thread for sending YDL messages to the YDL server
-    Has one connection that it keeps open; the thread
-    will die when the connection closes
-    '''
-    def __init__(self):
-        super().__init__()
-        self.daemon = True #will be shut down abruptly when main thread dies
+    def _new_connection(self):
+        self.lock.acquire()
+        if self.conn is not None:
+            self.conn.close()
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.selobj = ReadObject()
-        self.open_targets = {}
+        self.selobj = ReadObject() # in case was in middle of receiving, want this reset
         while True:
             try:
-                self.conn.connect(DEFAULT_SERVER_ADDR)
-                return
+                self.conn.connect(self.socket_address)
+                break
             except ConnectionRefusedError:
                 time.sleep(0.1)
+        for rc in self.receive_channels:
+            send_message(self.conn, rc, "")
+            # sending an empty string is a special message that means "subscribe to channel"
+        self.lock.release()
 
-    def run(self):
-        while True:
-            try: # try statement needed because windows sucks and throws an 10054 
-                 # connection reset error rather than just returning a 0 byte.
-                data = self.conn.recv(1024)  # Should be ready
-            except ConnectionResetError:
-                data = []
-            if len(data) == 0:
-                break
-            else:
-                self.selobj.inb += data
-                for target, message in self.selobj:
-                    self.forward_message(target, message)
-        self.conn.close()
-
-    def forward_message(self, target, message):
-        queue, put_json = self.open_targets[target]
-        if put_json:
-            queue.put(message)
-        else:
-            queue.put(tuple(json.loads(message)))
 
 def send_message(conn, target, msg):
     '''
@@ -130,7 +127,7 @@ class ReadObject:
         self.inb = self.inb[len1 + len2 + 8:]
         return (target_channel, message)
 
-def accept(sel, sock):
+def accept(sel, sock, verbose):
     '''
     (server method - internal use only)
     When sock has a connection ready to accept,
@@ -139,10 +136,11 @@ def accept(sel, sock):
     since dealing with non-blocking writes is a pain
     '''
     conn, addr = sock.accept()  # Should be ready
-    print('accepted connection from', addr)
+    if verbose:
+        print('accepted connection from', addr)
     sel.register(conn, selectors.EVENT_READ, ReadObject())
 
-def read(sel, subscriptions, conn, obj):
+def read(sel, subscriptions, conn, obj, verbose):
     '''
     (server method - internal use only)
     When conn has bytes ready to read, read those bytes and
@@ -154,7 +152,8 @@ def read(sel, subscriptions, conn, obj):
     except ConnectionResetError:
         data = []
     if len(data) == 0:
-        print('closing connection from socket')
+        if verbose:
+            print('closing connection from socket')
         sel.unregister(conn)
         conn.close()
         for lst in subscriptions.values():
@@ -172,17 +171,22 @@ def read(sel, subscriptions, conn, obj):
                 for c in subscriptions[target_channel]:
                     send_message(c, target_channel, message)
 
-def run_ydl_server():
+def run_ydl_server(address=None, port=None, verbose=False):
     '''
     (server method - internal use only)
     Runs the YDL server that processes will use
     to communicate with each other
     '''
-    print("Starting YDL server at address:", DEFAULT_SERVER_ADDR)
+    if address is None:
+        address = DEFAULT_YDL_ADDR[0]
+    if port is None:
+        port = DEFAULT_YDL_ADDR[1]
+    if verbose:
+        print("Starting YDL server at address:", (address, port))
     subscriptions = {} # a mapping of target names -> list of socket objects
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(DEFAULT_SERVER_ADDR)
+    sock.bind((address, port))
     sock.listen()
     sock.setblocking(False)
     sel = selectors.DefaultSelector()
@@ -191,6 +195,6 @@ def run_ydl_server():
         events = sel.select(timeout=1) #Windows is bad and needs a timeout here.
         for key, _mask in events:
             if key.data is None:
-                accept(sel, key.fileobj)
+                accept(sel, key.fileobj, verbose)
             else:
-                read(sel, subscriptions, key.fileobj, key.data)
+                read(sel, subscriptions, key.fileobj, key.data, verbose)
