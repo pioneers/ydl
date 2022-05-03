@@ -12,9 +12,9 @@ import time
 DEFAULT_YDL_ADDR = ('127.0.0.1', 5001) # doesn't need to be available on network
 
 class YDLClient():
-    def __init__(self, receive_channels=(), put_json=False, socket_address=DEFAULT_YDL_ADDR):
+    def __init__(self, *receive_channels, put_json=False, socket_address=DEFAULT_YDL_ADDR):
         '''
-        Takes in a list of receiving channel names (string).
+        Takes in receiving channel names (strings).
         Takes whether to return received items as JSON or Python dict.
         Waits for connection to open.
         '''
@@ -23,8 +23,6 @@ class YDLClient():
         self.socket_address = socket_address
         self.lock = threading.Lock()
         self.conn = None
-        if not (isinstance(receive_channels, list) or isinstance(receive_channels, tuple)):
-            raise RuntimeError("receive channels should be a list or tuple of channels")
         self._new_connection()
         
     def send(self, target_channel, header, dic=None):
