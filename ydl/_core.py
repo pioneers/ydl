@@ -3,6 +3,7 @@ import json
 import socket
 import selectors
 import time
+from typing import Tuple
 
 
 # when using YDL, please do:
@@ -12,20 +13,18 @@ import time
 DEFAULT_YDL_ADDR = ('127.0.0.1', 5001) # doesn't need to be available on network
 
 class YDLClient():
-    def __init__(self, *receive_channels, put_json=False, socket_address=DEFAULT_YDL_ADDR):
+    def __init__(self, *receive_channels: str, socket_address: Tuple[str, int] = DEFAULT_YDL_ADDR):
         '''
-        Takes in receiving channel names (strings).
-        Takes whether to return received items as JSON or Python dict.
-        Waits for connection to open.
+        Waits for connection to open, then subscribes to given receive_channels
         '''
-        self.receive_channels = receive_channels
-        self.put_json = put_json
-        self.socket_address = socket_address
-        self.lock = threading.Lock()
-        self.conn = None
+        self._receive_channels = receive_channels
+        self._socket_address = socket_address
+        self._lock = threading.Lock()
+        self._conn = None    # set in _new_connection()
+        self._selobj = None  # set in _new_connection()
         self._new_connection()
         
-    def send(self, target_channel, header, dic=None):
+    def send(self, target_channel: str, header: str, dic: dict = None):
         '''
         Send header and dictionary to target channel (string)
         header: string
@@ -35,55 +34,52 @@ class YDLClient():
             dic = {}
         json_str = json.dumps([header, dic])
         try:
-            send_message(self.conn, target_channel, json_str)
+            send_message(self._conn, target_channel, json_str)
         except BrokenPipeError:
             self._new_connection()
     
-    def receive(self):
+    def receive(self) -> Tuple[str, str, dict]:
         '''
         Blocks while waiting for next message. Not entirely thread safe; 
         should be reseliant to concurrent send() calls but not concurrent receive() calls. 
         '''
         while True:
             while True:
-                selobj_iter = iter(self.selobj)
+                selobj_iter = iter(self._selobj)
                 try:
                     target, message = next(selobj_iter)
                 except StopIteration:
                     pass
                 else:
-                    if self.put_json:
-                        return (target, message)
-                    else:
-                        return (target,) + tuple(json.loads(message))
+                    return (target,) + tuple(json.loads(message))
 
                 try: # try statement needed because windows sucks and throws an 10054 
                     # connection reset error rather than just returning a 0 byte.
-                    data = self.conn.recv(1024)  # block
+                    data = self._conn.recv(1024)  # block
                 except ConnectionResetError:
                     data = []
                 if len(data) == 0:
                     break
                 else:
-                    self.selobj.inb += data
+                    self._selobj.inb += data
             self._new_connection()
 
     def _new_connection(self):
-        self.lock.acquire()
-        if self.conn is not None:
-            self.conn.close()
-        self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.selobj = ReadObject() # in case was in middle of receiving, want this reset
+        self._lock.acquire()
+        if self._conn is not None:
+            self._conn.close()
+        self._conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._selobj = ReadObject() # in case was in middle of receiving, want this reset
         while True:
             try:
-                self.conn.connect(self.socket_address)
+                self._conn.connect(self._socket_address)
                 break
             except ConnectionRefusedError:
                 time.sleep(0.1)
-        for rc in self.receive_channels:
-            send_message(self.conn, rc, "")
+        for rc in self._receive_channels:
+            send_message(self._conn, rc, "")
             # sending an empty string is a special message that means "subscribe to channel"
-        self.lock.release()
+        self._lock.release()
 
 
 def send_message(conn, target, msg):
