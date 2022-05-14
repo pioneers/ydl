@@ -6,12 +6,19 @@ import time
 from typing import Tuple
 
 
-# when using YDL, please do:
-# from ydl import ydl_send, ydl_start_read
-# since only those two methods are meant for public consumption
-
+'''
+Default address for the YDL server. Also used as default arg for client.
+A network of clients should communicate through one server on a designated address.
+if all clients are on one computer, 127.0.0.1 works; if distributed across a local
+network, use 0.0.0.0 instead.
+'''
 DEFAULT_YDL_ADDR = ('127.0.0.1', 5001) # doesn't need to be available on network
 
+
+'''
+A client to the YDL network. Listens to a set of channels, and may send messages to
+any channel. Will automatically try to connect to YDL network.
+'''
 class YDLClient():
     def __init__(self, *receive_channels: str, socket_address: Tuple[str, int] = DEFAULT_YDL_ADDR):
         '''
@@ -24,21 +31,20 @@ class YDLClient():
         self._selobj = None  # set in _new_connection()
         self._new_connection()
         
-    def send(self, target_channel: str, header: str, dic: dict = None):
+    def send(self, message: Tuple):
         '''
-        Send header and dictionary to target channel (string)
-        header: string
-        dict: Python dictionary
+        The input message is a tuple of (target_channel, stuff...)
+        target_channel: str, which channel you want to send to
+        stuff: any other stuff you want to send
         '''
-        if dic is None:
-            dic = {}
-        json_str = json.dumps([header, dic])
+        target_channel = message[0]
+        json_str = json.dumps(message[1:])
         try:
             send_message(self._conn, target_channel, json_str)
         except BrokenPipeError:
             self._new_connection()
     
-    def receive(self) -> Tuple[str, str, dict]:
+    def receive(self) -> Tuple:
         '''
         Blocks while waiting for next message. Not entirely thread safe; 
         should be reseliant to concurrent send() calls but not concurrent receive() calls. 
