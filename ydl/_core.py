@@ -39,15 +39,20 @@ class YDLClient():
         '''
         target_channel = message[0]
         json_str = json.dumps(message[1:])
-        try:
-            send_message(self._conn, target_channel, json_str)
-        except BrokenPipeError:
-            self._new_connection()
+        # note this while loop is an attempt to detect broken connections,
+        # but for some reason one message always tends to get sent with no
+        # BrokenPipeError when ydl server disconnects. Better way of detecting?
+        while True:
+            try:
+                send_message(self._conn, target_channel, json_str)
+                break
+            except BrokenPipeError:
+                self._new_connection()
     
     def receive(self) -> Tuple:
         '''
         Blocks while waiting for next message. Not entirely thread safe; 
-        should be reseliant to concurrent send() calls but not concurrent receive() calls. 
+        should be resilient to concurrent send() calls but not concurrent receive() calls. 
         '''
         while True:
             while True:
@@ -71,21 +76,20 @@ class YDLClient():
             self._new_connection()
 
     def _new_connection(self):
-        self._lock.acquire()
-        if self._conn is not None:
-            self._conn.close()
-        self._conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._selobj = ReadObject() # in case was in middle of receiving, want this reset
-        while True:
-            try:
-                self._conn.connect(self._socket_address)
-                break
-            except ConnectionRefusedError:
-                time.sleep(0.1)
-        for rc in self._receive_channels:
-            send_message(self._conn, rc, "")
-            # sending an empty string is a special message that means "subscribe to channel"
-        self._lock.release()
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+            self._conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._selobj = ReadObject() # in case was in middle of receiving, want this reset
+            while True:
+                try:
+                    self._conn.connect(self._socket_address)
+                    break
+                except ConnectionRefusedError:
+                    time.sleep(0.1)
+            for rc in self._receive_channels:
+                send_message(self._conn, rc, "")
+                # sending an empty string is a special message that means "subscribe to channel"
 
 
 def send_message(conn, target, msg):
