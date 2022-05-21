@@ -6,103 +6,118 @@ import time
 from typing import Tuple
 
 
-'''
-Default address for the YDL server. Also used as default arg for client.
-A network of clients should communicate through one server on a designated address.
-if all clients are on one computer, 127.0.0.1 works; if distributed across a local
-network, use 0.0.0.0 instead.
-'''
+
+# Default address for the YDL server. Also used as default arg for client.
+# A network of clients should communicate through one server on a designated address.
+# if all clients are on one computer, 127.0.0.1 works; if distributed across a local
+# network, use 0.0.0.0 instead.
 DEFAULT_YDL_ADDR = ('127.0.0.1', 5001) # doesn't need to be available on network
 
 
-'''
-A client to the YDL network. Listens to a set of channels, and may send messages to
-any channel. Will automatically try to connect to YDL network.
-'''
 class YDLClient():
+    '''
+    A client to the YDL network. Listens to a set of channels, and may send messages to
+    any channel. Will automatically try to connect to YDL network.
+    '''
     def __init__(self, *receive_channels: str, socket_address: Tuple[str, int] = DEFAULT_YDL_ADDR):
         '''
         Waits for connection to open, then subscribes to given receive_channels
         '''
         self._receive_channels = receive_channels
         self._socket_address = socket_address
-        self._lock = threading.Lock()
+        self._lock = threading.Lock() # protects all local variables
         self._conn = None    # set in _new_connection()
         self._selobj = None  # set in _new_connection()
-        self._new_connection()
-        
+        with self._lock:
+            self._new_connection()
+
     def send(self, message: Tuple):
         '''
         The input message is a tuple of (target_channel, stuff...)
         target_channel: str, which channel you want to send to
         stuff: any other stuff you want to send
+        May block if disconnected and waiting for a new connection.
         '''
         target_channel = message[0]
         json_str = json.dumps(message[1:])
-        # note this while loop is an attempt to detect broken connections,
-        # but for some reason one message always tends to get sent with no
-        # BrokenPipeError when ydl server disconnects. Better way of detecting?
         while True:
+            # Detect if connection lost to YDL server. Not foolproof, but sometimes
+            # prevent messages from getting lost in transit when YDL server is restarted
             try:
-                send_message(self._conn, target_channel, json_str)
-                break
-            except BrokenPipeError:
+                rcvd = self._conn.recv(1, socket.MSG_DONTWAIT|socket.MSG_PEEK)
+            except ConnectionResetError:
+                good_to_send = False
+            except BlockingIOError:
+                good_to_send = True
+            else:
+                good_to_send = len(rcvd) > 0
+
+            try:
+                if good_to_send:
+                    send_message(self._conn, target_channel, json_str)
+                    break
+            except (ConnectionResetError, BrokenPipeError):
+                pass
+            with self._lock:
                 self._new_connection()
-    
+
     def receive(self) -> Tuple:
         '''
-        Blocks while waiting for next message. Not entirely thread safe; 
-        should be resilient to concurrent send() calls but not concurrent receive() calls. 
+        Blocks while waiting for next message. Will try to reconnect if connection is lost.
         '''
-        while True:
+        with self._lock:
             while True:
-                selobj_iter = iter(self._selobj)
-                try:
-                    target, message = next(selobj_iter)
-                except StopIteration:
-                    pass
-                else:
-                    return (target,) + tuple(json.loads(message))
+                while True:
+                    selobj_iter = iter(self._selobj)
+                    try:
+                        target, message = next(selobj_iter)
+                    except StopIteration:
+                        pass
+                    else:
+                        return (target,) + tuple(json.loads(message))
 
-                try: # try statement needed because windows sucks and throws an 10054 
-                    # connection reset error rather than just returning a 0 byte.
-                    data = self._conn.recv(1024)  # block
-                except ConnectionResetError:
-                    data = []
-                if len(data) == 0:
-                    break
-                else:
-                    self._selobj.inb += data
-            self._new_connection()
+                    try: # try statement needed because windows sucks and throws an 10054 
+                        # connection reset error rather than just returning a 0 byte.
+                        data = self._conn.recv(1024)  # block
+                    except ConnectionResetError:
+                        data = []
+                    if len(data) == 0:
+                        break
+                    else:
+                        self._selobj.inb += data
+                self._new_connection()
 
     def _new_connection(self):
-        with self._lock:
-            if self._conn is not None:
-                self._conn.close()
-            self._conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._selobj = ReadObject() # in case was in middle of receiving, want this reset
-            while True:
-                try:
-                    self._conn.connect(self._socket_address)
-                    break
-                except ConnectionRefusedError:
-                    time.sleep(0.1)
-            for rc in self._receive_channels:
-                send_message(self._conn, rc, "")
-                # sending an empty string is a special message that means "subscribe to channel"
+        if self._conn is not None:
+            self._conn.close()
+        self._conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._selobj = ReadObject() # in case was in middle of receiving, want this reset
+        while True:
+            try:
+                self._conn.connect(self._socket_address)
+                break
+            except ConnectionRefusedError:
+                time.sleep(0.1)
+        for rc in self._receive_channels:
+            send_message(self._conn, rc, "")
+            # sending an empty string is a special message that means "subscribe to channel"
 
 
 def send_message(conn, target, msg):
     '''
     (internal use only)
     Sends a message meant for the given target across conn
-    The message format is (len1, len2, str1, str2)
-    Note: all 4 components have to be in one conn.sendall call,
+    The message format is (lenlen, len1, len2, str1, str2)
+    Note: all 5 components have to be in one conn.sendall call,
     otherwise bad things happen when multiple threads send messages
     at the same time
     '''
-    conn.sendall(len(target).to_bytes(4, "little")
-               + len(msg).to_bytes(4, "little")
+    len1 = len(target)
+    len2 = len(msg)
+    lenlen = (max(len1, len2).bit_length() + 7) // 8
+    conn.sendall(lenlen.to_bytes(1, "little")
+               + len1.to_bytes(lenlen, "little")
+               + len2.to_bytes(lenlen, "little")
                + target.encode("utf-8")
                + msg.encode("utf-8"))
 
@@ -120,15 +135,19 @@ class ReadObject:
         return self
 
     def __next__(self):
-        if len(self.inb) < 8:
+        if len(self.inb) < 1:
             raise StopIteration
-        len1 = int.from_bytes(self.inb[0:4], "little")
-        len2 = int.from_bytes(self.inb[4:8], "little")
-        if len(self.inb) < 8 + len1 + len2:
+        lenlen = int.from_bytes(self.inb[0:1], "little")
+        start = 1 + 2*lenlen # start of target string
+        if len(self.inb) < start:
             raise StopIteration
-        target_channel = self.inb[8: len1 + 8].decode("utf-8")
-        message = self.inb[len1 + 8: len1 + len2 + 8].decode("utf-8")
-        self.inb = self.inb[len1 + len2 + 8:]
+        len1 = int.from_bytes(self.inb[1:1+lenlen], "little")
+        len2 = int.from_bytes(self.inb[1+lenlen:start], "little")
+        if len(self.inb) < start + len1 + len2:
+            raise StopIteration
+        target_channel = self.inb[start: start + len1].decode("utf-8")
+        message = self.inb[start + len1: start + len1 + len2].decode("utf-8")
+        self.inb = self.inb[start + len1 + len2:]
         return (target_channel, message)
 
 def accept(sel, sock, verbose):
