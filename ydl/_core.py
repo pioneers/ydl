@@ -60,6 +60,9 @@ class YDLClient():
                 pass
             with self._lock:
                 self._new_connection()
+            time.sleep(0.5) # hack because of race condition
+            # specifically, we want to wait for receiving end to connect before sending
+            # however, there's no guarentee that receiving end even exists, so can't synchronize
 
     def receive(self) -> Tuple:
         '''
@@ -76,7 +79,7 @@ class YDLClient():
                     else:
                         return (target,) + tuple(json.loads(message))
 
-                    try: # try statement needed because windows sucks and throws an 10054 
+                    try: # try statement needed because windows sucks and throws an 10054
                         # connection reset error rather than just returning a 0 byte.
                         data = self._conn.recv(1024)  # block
                     except ConnectionResetError:
@@ -98,8 +101,8 @@ class YDLClient():
                 break
             except ConnectionRefusedError:
                 time.sleep(0.1)
-        for rc in self._receive_channels:
-            send_message(self._conn, rc, "")
+        for recv_channel in self._receive_channels:
+            send_message(self._conn, recv_channel, "")
             # sending an empty string is a special message that means "subscribe to channel"
 
 
@@ -169,7 +172,7 @@ def read(sel, subscriptions, conn, obj, verbose):
     When conn has bytes ready to read, read those bytes and
     forward messages to the correct subscribers
     '''
-    try: # try statement needed because windows sucks and throws an 10054 
+    try: # try statement needed because windows sucks and throws an 10054
          # connection reset error rather than just returning a 0 byte.
         data = conn.recv(1024)  # Should be ready
     except ConnectionResetError:
@@ -191,8 +194,8 @@ def read(sel, subscriptions, conn, obj, verbose):
                 subscriptions[target_channel].append(conn)
             else:
                 # forward message to correct subscribers
-                for c in subscriptions[target_channel]:
-                    send_message(c, target_channel, message)
+                for chan in subscriptions[target_channel]:
+                    send_message(chan, target_channel, message)
 
 def run_ydl_server(address=None, port=None, verbose=False):
     '''

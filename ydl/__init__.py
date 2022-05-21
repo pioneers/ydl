@@ -1,6 +1,6 @@
 """YDL: interprocess communication over TCP sockets
 
-Import the ydl module to initialize a YDL client or server: 
+Import the ydl module to initialize a YDL client or server:
 
 Process 0:
     >>> from ydl import run_ydl_server

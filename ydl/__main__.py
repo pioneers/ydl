@@ -15,13 +15,14 @@ if __name__ == "__main__":
         help="run server on specified ip address, such as 0.0.0.0")
     parser.add_argument("-p", "--port", default=None, type=int,
         help="run server on specified port")
-    
+
     args = parser.parse_args()
     verbose = not args.silent
     def sigint_handler(_signum, _frame):
+        '''gracefully shuts down server on sigint (ctrl-c)'''
         if verbose:
             print("\nShutting down YDL server")
         sys.exit(0)
-    
+
     signal.signal(signal.SIGINT, sigint_handler)
     run_ydl_server(args.address, args.port, verbose)
