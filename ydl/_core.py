@@ -35,7 +35,7 @@ class YDLClient():
         '''
         The input message is a tuple of (target_channel, stuff...)
         target_channel: str, which channel you want to send to
-        stuff: any other stuff you want to send
+        stuff: any other stuff you want to send. Must be json serializable.
         May block if disconnected and waiting for a new connection.
         '''
         target_channel = message[0]
