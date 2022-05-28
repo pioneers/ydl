@@ -40,9 +40,12 @@ After calling `send()` a bunch of times, you can call `receive()` in terminal 2 
 
 ## A less minimal example
 
-The minimal example involves two processes talking to each other on the same computer; however, what if we wanted to send messages across the internet?
+The minimal example involves two processes talking to each other on the same computer; however, YDL can do much more than that. In this less minimal example, we'll demonstrate:
+ - running the YDL server as a thread on one of the processes
+ - communication between two processes on different computers
+ - two-way communication
 
-For this example, you will need two terminal windows. You may run both terminals on the same computer, but it's more interesting if you run them on two seperate computers on the same local network.
+For this example, you will need two terminal windows on seperate computers. You may run both terminals on the same computer, but it's more interesting if you run them on two seperate computers on the same local network.
 
 In terminal 1, execute:
 ```
