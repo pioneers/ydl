@@ -29,7 +29,7 @@ Execute the following in terminal 3:
 ```
 $ python3
 >>> import ydl
->>> yc = ycl.YDLClient()
+>>> yc = ydl.YDLClient()
 >>> yc.send(("cheese", 1, 2, 3, "cool"))
 ```
 After executing `yc.send()`, you should notice the full tuple pop up in terminal 2. Congratulations, you've sent your first message!
