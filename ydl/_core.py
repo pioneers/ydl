@@ -41,28 +41,13 @@ class YDLClient():
         target_channel = message[0]
         json_str = json.dumps(message[1:])
         while True:
-            # Detect if connection lost to YDL server. Not foolproof, but sometimes
-            # prevent messages from getting lost in transit when YDL server is restarted
             try:
-                rcvd = self._conn.recv(1, socket.MSG_DONTWAIT|socket.MSG_PEEK)
-            except ConnectionResetError:
-                good_to_send = False
-            except BlockingIOError:
-                good_to_send = True
-            else:
-                good_to_send = len(rcvd) > 0
-
-            try:
-                if good_to_send:
-                    send_message(self._conn, target_channel, json_str)
-                    break
+                send_message(self._conn, target_channel, json_str)
+                break
             except (ConnectionResetError, BrokenPipeError):
                 pass
             with self._lock:
                 self._new_connection()
-            time.sleep(0.5) # hack because of race condition
-            # specifically, we want to wait for receiving end to connect before sending
-            # however, there's no guarentee that receiving end even exists, so can't synchronize
 
     def receive(self) -> Tuple:
         '''
@@ -86,8 +71,7 @@ class YDLClient():
                         data = []
                     if len(data) == 0:
                         break
-                    else:
-                        self._selobj.inb += data
+                    self._selobj.inb += data
                 self._new_connection()
 
     def _new_connection(self):
