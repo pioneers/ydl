@@ -12,7 +12,7 @@ Process 1:
     >>> yc.send(("process 2", "stuff"))
 
 Process 2:
-    >>> from ydl 
+    >>> from ydl import YDLClient
     >>> yc = YDLClient("process 2")
     >>> yc.receive()
     ('process 2', 'stuff')
