@@ -19,4 +19,4 @@ Process 2:
 """
 
 from ._core import DEFAULT_YDL_ADDR, YDLClient, run_ydl_server
-from ._header import header
+from ._header import header, Handler, on_header

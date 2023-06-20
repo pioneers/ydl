@@ -1,0 +1,19 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "ydl-ipc"
+packages = [
+    { include = "ydl" }
+]
+version = "0.2.0"
+description = "Simple inter-process communication"
+authors = ["Pioneers in Engineering <leadership@pioneers.berkeley.edu>"]
+readme = "README.md"
+license = "MIT"
+classifiers=[
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]

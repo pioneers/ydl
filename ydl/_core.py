@@ -183,7 +183,6 @@ def read(sel, subscriptions, conn, obj, verbose):
 
 def run_ydl_server(address=None, port=None, verbose=False):
     '''
-    (server method - internal use only)
     Runs the YDL server that processes will use
     to communicate with each other
     '''
