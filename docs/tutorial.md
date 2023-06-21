@@ -20,7 +20,7 @@ Execute the following in terminal 2:
 ```
 $ python3
 >>> import ydl
->>> yc = ydl.YDLClient("cheese")
+>>> yc = ydl.Client("cheese")
 >>> yc.receive()
 ```
 You'll notice that after executing the last line, the interpreter will seem to freeze. This is good! The call to `yc.receive()` will wait for the next message across any of the channels that `yc` is listening on. Currently, `yc` is listening to the channel `"cheese"`.
@@ -29,7 +29,7 @@ Execute the following in terminal 3:
 ```
 $ python3
 >>> import ydl
->>> yc = ydl.YDLClient()
+>>> yc = ydl.Client()
 >>> yc.send(("cheese", 1, 2, 3, "cool"))
 ```
 After executing `yc.send()`, you should notice the full tuple pop up in terminal 2. Congratulations, you've sent your first message!
@@ -52,14 +52,11 @@ In terminal 1, execute:
 $ python3
 >>> import threading
 >>> import ydl
->>> def run_server_locally():
-...     ydl.run_ydl_server("0.0.0.0", 5001)
-... 
->>> threading.Thread(target=run_server_locally).start()
->>> yc = ydl.YDLClient("potato", "banana")
+>>> threading.Thread(target=ydl.run_server, args=("0.0.0.0", 5001)).start()
+>>> yc = ydl.Client("potato", "banana")
 >>> while True:
 ...     m = yc.receive()
-...     yc.send(("cheese",) + m[1:])
+...     yc.send(("cheese",) + m)
 ```
 There are a few interesting things here. First, instead of running the YDL server as its own process, it's being run as a thread on this process. Secondly, the server is listening on `0.0.0.0`, rather than the default `127.0.0.1` (this will allow it to accept connections for the local area network). Finally, the while loop means that the `yc` client will listen for any messages to `"potato"` or `"banana"` and forward them to `"cheese"`.
 
@@ -67,24 +64,24 @@ Now, determine the local IP address of the first computer (this can be done with
 ```
 $ python3
 >>> import ydl
->>> yc = ydl.YDLClient("cheese", socket_address=("COMPUTER_1_IP_HERE", 5001))
+>>> yc = ydl.Client("cheese", socket_address=("COMPUTER_1_IP_HERE", 5001))
 >>> yc.send(("potato", 1234))
 >>> yc.receive()
 ```  
 (make sure to replace `"COMPUTER_1_IP_HERE"` with the IP address of your first computer, or `"127.0.0.1"` if you're running both terminal windows on the same computer)
 
-You should see the message `('cheese', 1234)` received back. If so, congratulations! You've successfully had two processes communicate across a network. 
+You should see the message `('cheese', 'potato', 1234)` received back. If so, congratulations! You've successfully had two processes communicate across a network. 
 
 ## Structured Communication
 
-By default, messages are very permissive - you can pretty much send any tuple that begins with a channel name. However, such flexible comminication can become unwieldy for larger projects.
+By default, messages are very permissive - you can pretty much send any tuple that begins with a channel name. However, such flexible communication can become unwieldy for larger projects.
 
 One common use case of YDL is for remote procedure calls; basically, we want to invoke some function on the receiving process. For example, we may have two processes that do something like this (make sure to run `python3 -m ydl` in a 3rd terminal if you want to run this demo):
 
 Process 1:
 ```python
 import ydl
-yc = ydl.YDLClient("interactive")
+yc = ydl.Client("interactive")
 while True:
     num = int(input("Enter an integer: "))
     op = input("Enter i to increment, or d to double: ")
@@ -107,7 +104,7 @@ def increment(num):
 def double(num):
     return num * 2
 
-yc = ydl.YDLClient("calculator")
+yc = ydl.Client("calculator")
 fn_mapping = {"i": increment, "d": double}
 while True:
     _, op, data = yc.receive()
@@ -117,7 +114,6 @@ Here, we have process 1 doing remote procedure calls supported by process 2. How
  - function names and arguments are identified by strings, which is just inviting misspellings
  - whenever we want to send a message from process 1, we have to remember all the arguments
  - no autocompletion :(
- - no type checking
 
 All of these problems can be solved through the use of _header functions_, which are a mechanism for creating structured messages. Let's modify the previous example:
 
@@ -144,14 +140,14 @@ Process 1:
 ```python
 import ydl
 from shared import *
-yc = ydl.YDLClient(int_channel)
+yc = ydl.Client(int_channel)
 while True:
     num = int(input("Enter an integer: "))
     op = input("Enter i to increment, or d to double: ")
     if op == "i":
-        yc.send(increment_message(num=num))
+        yc.send(increment_message(num))
     elif op == "d":
-        yc.send(double_message(num=num))
+        yc.send(double_message(num))
     else:
         print("unsupported operation")
         continue
@@ -162,29 +158,25 @@ Process 2:
 import ydl
 from shared import *
 
+yc = ydl.Client(calc_channel)
+yh = ydl.Handler()
+
+@ydl.on_header(yh, increment_message)
 def increment(num):
-    return num + 1
+    yc.send(result_message(num + 1))
 
+@ydl.on_header(yh, double_message)
 def double(num):
-    return num * 2
+    yc.send(result_message(num * 2))
 
-yc = ydl.YDLClient(calc_channel)
-fn_mapping = {
-    increment_message.name: increment, 
-    double_message.name: double
-}
 while True:
-    _, op, data = yc.receive()
-    yc.send(result_message(num=fn_mapping[op](**data)))
+    yh.handle(yc.receive())
+
 ```
 
-The annotion `@ydl.header` automatically replaces the function with one that will construct a message. The new function will do the following:
- - make sure all arguments are keyword, not positional (makes contents of messages more explicit)
- - typecheck all the arguments
- - call the original function, which has the opportunity to raise errors. For example, the original function might do bounds checks on the arguments.
- - finally, return the tuple (target_channel, header, {args}). Usually "header" corresponds to a function name.
+The annotation `@ydl.header` automatically replaces the function with one that will construct a message. The new function will also call the original function, which has the opportunity to raise errors (for example, type checking).
 
-The new function also gets new properties/variables: `fn.target` and `fn.header`, which correspond to the target channel and the header respectively. This allows the receiving end to avoid hardcoding the names.
+The annotation `@ydl.on_header` adds a function to the given `Handler` object, so that the function will be called whenever that type of message is received. 
  
 ## Technical Behavior
 
@@ -192,7 +184,7 @@ Note that YDL operates on a many-to-many messaging model, so you can have severa
 
 A client may listen to any number of channels, as long as they're all passed as arguments to the constructor.
 
-Clients will connect to the server in the `YDLClient()` constructor; note that this will block if the server isn't availible. Both `send()` and `receive()` will block and try to reconnect if connection is lost.
+Clients will connect to the server in the `Client()` constructor; note that this will block if the server isn't availible. Both `send()` and `receive()` will block and try to reconnect if connection is lost.
 
 If the server goes down, it may simply be restarted without too much chaos. Some messages may be lost if they were sent just before the server went down, or just after it comes back up. This is somewhat unavoidable, so if you need to guarentee that a message was sent, you should implement confirmation messages.
 

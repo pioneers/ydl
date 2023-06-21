@@ -3,20 +3,20 @@
 Import the ydl module to initialize a YDL client or server:
 
 Process 0:
-    >>> from ydl import run_ydl_server
-    >>> run_ydl_server()
+    >>> from ydl import run_server
+    >>> run_server()
 
 Process 1:
-    >>> from ydl import YDLClient
-    >>> yc = YDLClient()
+    >>> from ydl import Client
+    >>> yc = Client()
     >>> yc.send(("process 2", "stuff"))
 
 Process 2:
-    >>> from ydl import YDLClient
-    >>> yc = YDLClient("process 2")
+    >>> from ydl import Client
+    >>> yc = Client("process 2")
     >>> yc.receive()
     ('process 2', 'stuff')
 """
 
-from ._core import DEFAULT_YDL_ADDR, YDLClient, run_ydl_server
+from ._core import DEFAULT_ADDR, Client, run_server
 from ._header import header, Handler, on_header

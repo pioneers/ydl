@@ -5,7 +5,7 @@ Run a YDL server, which clients can use to communicate.
 import argparse
 import signal
 import sys
-from ._core import run_ydl_server
+from ._core import run_server
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='python3 -m ydl', description=__doc__)
@@ -25,4 +25,4 @@ if __name__ == "__main__":
         sys.exit(0)
 
     signal.signal(signal.SIGINT, sigint_handler)
-    run_ydl_server(args.address, args.port, verbose)
+    run_server(args.address, args.port, verbose)

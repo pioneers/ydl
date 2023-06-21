@@ -11,15 +11,15 @@ from typing import Tuple
 # A network of clients should communicate through one server on a designated address.
 # if all clients are on one computer, 127.0.0.1 works; if distributed across a local
 # network, use 0.0.0.0 instead.
-DEFAULT_YDL_ADDR = ('127.0.0.1', 5001) # doesn't need to be available on network
+DEFAULT_ADDR = ('127.0.0.1', 5001) # doesn't need to be available on network
 
 
-class YDLClient():
+class Client():
     '''
     A client to the YDL network. Listens to a set of channels, and may send messages to
     any channel. Will automatically try to connect to YDL network.
     '''
-    def __init__(self, *receive_channels: str, socket_address: Tuple[str, int] = DEFAULT_YDL_ADDR):
+    def __init__(self, *receive_channels: str, socket_address: Tuple[str, int] = DEFAULT_ADDR):
         '''
         Waits for connection to open, then subscribes to given receive_channels
         '''
@@ -181,15 +181,15 @@ def read(sel, subscriptions, conn, obj, verbose):
                 for chan in subscriptions[target_channel]:
                     send_message(chan, target_channel, message)
 
-def run_ydl_server(address=None, port=None, verbose=False):
+def run_server(address=None, port=None, verbose=False):
     '''
     Runs the YDL server that processes will use
     to communicate with each other
     '''
     if address is None:
-        address = DEFAULT_YDL_ADDR[0]
+        address = DEFAULT_ADDR[0]
     if port is None:
-        port = DEFAULT_YDL_ADDR[1]
+        port = DEFAULT_ADDR[1]
     if verbose:
         print("Starting YDL server at address:", (address, port))
     subscriptions = {} # a mapping of target names -> list of socket objects
