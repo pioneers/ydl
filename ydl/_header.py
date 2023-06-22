@@ -23,6 +23,7 @@ def header(channel, name):
 
         header_func.ydl_channel = channel
         header_func.ydl_name = name
+        header_func.ydl_arg_names = arg_names
         return header_func
     return make_header
 
@@ -44,6 +45,12 @@ class Handler():
         Returns `handling_fn`.
         """
         assert header_fn.ydl_name not in self.mapping, "duplicate header"
+
+        header_params = header_fn.ydl_arg_names
+        handle_params = list(inspect.signature(handling_fn).parameters.keys())
+        assert header_params == handle_params, "Header has params " + \
+            f"{header_params} but handler has params {handle_params}"
+
         self.mapping[header_fn.ydl_name] = handling_fn
         return handling_fn
 
