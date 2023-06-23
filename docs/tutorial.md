@@ -161,11 +161,11 @@ from shared import *
 yc = ydl.Client(calc_channel)
 yh = ydl.Handler()
 
-@ydl.on_header(yh, increment_message)
+@yh.on(increment_message)
 def increment(num):
     yc.send(result_message(num + 1))
 
-@ydl.on_header(yh, double_message)
+@yh.on(double_message)
 def double(num):
     yc.send(result_message(num * 2))
 
@@ -176,7 +176,7 @@ while True:
 
 The annotation `@ydl.header` automatically replaces the function with one that will construct a message. The new function will also call the original function, which has the opportunity to raise errors (for example, type checking).
 
-The annotation `@ydl.on_header` adds a function to the given `Handler` object, so that the function will be called whenever that type of message is received. 
+The annotation `@yh.on` adds a function to the given `Handler` object, so that the function will be called whenever that type of message is received. 
  
 ## Technical Behavior
 

@@ -19,4 +19,4 @@ Process 2:
 """
 
 from ._core import DEFAULT_ADDR, Client, run_server
-from ._header import header, Handler, on_header
+from ._header import header, Handler

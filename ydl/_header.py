@@ -54,6 +54,13 @@ class Handler():
         self.mapping[header_fn.ydl_name] = handling_fn
         return handling_fn
 
+    def on(self, header_fn):
+        """
+        This decorator annotates a function that the handler should call whenever
+        the given header is received.
+        """
+        return lambda f: self.add_function(header_fn, f)
+
     def can_handle(self, message):
         """
         Returns True if the message is well-formed, and there exists a 
@@ -80,11 +87,3 @@ class Handler():
         if self.can_handle(message):
             return (True, self.handle_unchecked(message))
         return (False, None)
-
-
-def on_header(handler: Handler, header_fn):
-    """
-    This decorator annotates a function that the handler should call whenever
-    the given header is received.
-    """
-    return lambda f: handler.add_function(header_fn, f)
