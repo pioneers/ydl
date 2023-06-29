@@ -1,0 +1,3 @@
+# requirements for building docs
+sphinx
+sphinx_rtd_theme
