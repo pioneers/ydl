@@ -4,11 +4,15 @@
 API Reference
 =================
 
-.. py:attribute:: DEFAULT_ADDR
-    :type: Tuple[str, int]
+.. py:attribute:: DEFAULT_HOST
+    :type: str
 
-    The default address and port that the server and client bind to.
+    The default host that the server and client bind to.
 
+.. py:attribute:: DEFAULT_PORT
+    :type: int
+
+    The default port that the server and client bind to.
 
 .. autoclass:: Client
    :members:

@@ -1,5 +1,5 @@
 import inspect
-
+from typing import Tuple
 
 def header(channel, name):
     """
@@ -37,31 +37,26 @@ class Handler():
     def __init__(self):
         self.mapping = {}
 
-    def add_function(self, header_fn, handling_fn):
-        """
-        Adds a header-function mapping. Incoming messages from the given
-        header will be handled with the given function.
-
-        Returns `handling_fn`.
-        """
-        assert header_fn.ydl_name not in self.mapping, "duplicate header"
-
-        header_params = header_fn.ydl_arg_names
-        handle_params = list(inspect.signature(handling_fn).parameters.keys())
-        assert header_params == handle_params, "Header has params " + \
-            f"{header_params} but handler has params {handle_params}"
-
-        self.mapping[header_fn.ydl_name] = handling_fn
-        return handling_fn
-
     def on(self, header_fn):
         """
         This decorator annotates a function that the handler should call whenever
-        the given header is received.
+        the given header is received. The original function is returned 
+        by the decorator, so a function can be annotated multiple times.
         """
-        return lambda f: self.add_function(header_fn, f)
+        def add_function(handling_fn):
+            assert header_fn.ydl_name not in self.mapping, "duplicate header"
 
-    def can_handle(self, message):
+            header_params = header_fn.ydl_arg_names
+            handle_params = list(inspect.signature(handling_fn).parameters.keys())
+            assert header_params == handle_params, "Header has params " + \
+                f"{header_params} but handler has params {handle_params}"
+
+            self.mapping[header_fn.ydl_name] = handling_fn
+            return handling_fn
+
+        return add_function
+
+    def can_handle(self, message: Tuple) -> bool:
         """
         Returns True if the message is well-formed, and there exists a 
         corresponding function for the handler to call.
@@ -71,19 +66,14 @@ class Handler():
                 isinstance(message[2], dict) and \
                 message[1] in self.mapping
 
-    def handle_unchecked(self, message):
+    def handle(self, message: Tuple) -> Tuple:
         """
-        Calls the function corresponding to the given message's header.
-        Returns whatever the function returns.
-        """
-        return self.mapping.get(message[1])(**message[2])
-
-    def handle(self, message):
-        """
-        If an applicable function exists for the given message, calls that
-        function and returns `(True, result)`, where `result` is the return
-        value of the function. Otherwise, just returns `(False, None)`.
+        If the message is well-formed and an applicable function exists for the
+        given message, calls that function and returns a single-element tuple 
+        `(result,)`, where `result` is the return value of the function.
+        Otherwise, returns an empty tuple. Note that `(result,)` is truthy and
+        an empty tuple is falsy.
         """
         if self.can_handle(message):
-            return (True, self.handle_unchecked(message))
-        return (False, None)
+            return (self.mapping.get(message[1])(**message[2]),)
+        return ()

@@ -18,5 +18,5 @@ Process 2:
     ('process 2', 'stuff')
 """
 
-from ._core import DEFAULT_ADDR, Client, run_server
+from ._core import DEFAULT_HOST, DEFAULT_PORT, Client, run_server
 from ._header import header, Handler

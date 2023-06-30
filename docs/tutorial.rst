@@ -79,7 +79,7 @@ Now, determine the local IP address of the first computer (this can be done with
 
    $ python3
    >>> import ydl
-   >>> yc = ydl.Client("cheese", socket_address=("COMPUTER_1_IP_HERE", 5001))
+   >>> yc = ydl.Client("cheese", host="COMPUTER_1_IP_HERE", port=5001)
    >>> yc.send(("potato", 1234))
    >>> yc.receive()
 
