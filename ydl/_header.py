@@ -1,100 +1,79 @@
-from typeguard import check_type
-# global list of header names, used to check for collisions
-global_header_names = []
-def header(target, name):
+import inspect
+from typing import Tuple
+
+def header(channel, name):
     """
-    The decorator wrapper function that sets the target and name for the
-    decorator environment.
+    Decorator that turns a regular function into a "header function". The
+    header function calls the original function (so it can do input validation),
+    then returns a message in this format:
+    (channel, name, args)
+    where args is a dictionary of the arguments
     """
-    # make sure there are no name collisions
-    if target+name in global_header_names:
-        raise ValueError(f"header name collision: {target+name}")
-    global_header_names.append(target+name)
     def make_header(func):
-        """
-        The inside decorator function that will get called on the decorated
-        function.
-        Returns a HeaderPrimitive object with the appropriate target, name, and
-        typing_function.
-        """
-        # this is magic
-        # purposefully confusing pylance so it will give up and
-        # show the header with the signature of the original function
-        # it is synonymous with `return HeaderPrimitive(target, name, func)`
-        return [HeaderPrimitive(target, name, func),0][0]
+        parameters = inspect.signature(func).parameters
+        arg_names = list(parameters.keys())
+        default_params = {name: p.default for name, p in parameters.items()}
+
+        def header_func(*args, **kwargs):
+            func(*args, **kwargs)
+            args_dict = default_params.copy()
+            args_dict.update(zip(arg_names, args))
+            args_dict.update(kwargs)
+            return (channel, name, args_dict)
+
+        header_func.ydl_channel = channel
+        header_func.ydl_name = name
+        header_func.ydl_arg_names = arg_names
+        return header_func
     return make_header
-class HeaderPrimitive():
+
+
+
+class Handler():
     """
-    The header class, which is used to type check and return formatted header
-    tuples.
-    This class is callable, and will type check the passed in keyword arguments
-    and return a tuple of the target, the name, and the kwargs. This class
-    should be created by decorating a type anotated function with the @header
-    decorator. Any untyped variables will not be type checked.
-    This class is also comparable to other header classes or to strings, and will
-    be equal if the name field is equal, or if the name is equal to the string.
-    This class is also hashable, so it may be used as a key in a dictionary.
-    This class is immutable as well.
-    This docstring will be replaced by the typing_function's docstring.
+    A handler object is meant to store a bunch of functions,
+    then call the corresponding function whenever a header is received
     """
-    def __init__(self, target, name, typing_function):
+    def __init__(self):
+        self.mapping = {}
+
+    def on(self, header_fn):
         """
-        The initializer for the HeaderPrimitive class. Copies the doc string from
-        the typing function and sets the target, name, and typing function.
+        This decorator annotates a function that the handler should call whenever
+        the given header is received. The original function is returned 
+        by the decorator, so a function can be annotated multiple times.
         """
-        self.__doc__ = typing_function.__doc__
-        self.target = target
-        self.name = name
-        self.typing_function = typing_function
-    def __call__(self, *args, **kwargs):
+        def add_function(handling_fn):
+            assert header_fn.ydl_name not in self.mapping, "duplicate header"
+
+            header_params = header_fn.ydl_arg_names
+            handle_params = list(inspect.signature(handling_fn).parameters.keys())
+            assert header_params == handle_params, "Header has params " + \
+                f"{header_params} but handler has params {handle_params}"
+
+            self.mapping[header_fn.ydl_name] = handling_fn
+            return handling_fn
+
+        return add_function
+
+    def can_handle(self, message: Tuple) -> bool:
         """
-        The function that is called when an instance of HeaderPrimitive is called.
-        Ensures that no positional args are passed in.
-        Ensures that all the keyword args that are passed in are typed the same
-        as the annotations.
-        Calls the typing function on the keyword arguments to ensure that the
-        function signature is satisfied and that the rules defined in the
-        typing_function are followed.
-        Returns a tuple of the target, the name, and the kwargs.
+        Returns True if the message is well-formed, and there exists a 
+        corresponding function for the handler to call.
         """
-        # check for positional args and raise an exception
-        if len(args) > 0:
-            raise TypeError(f"{self.typing_function.__name__}"
-                + " requires keyword arguments, but positional arguments were given")
-        # check the typing for each arg in kwargs against the annotation.
-        annots = self.typing_function.__annotations__
-        for arg, value in kwargs.items():
-            # skips unannotated arguments, typechecks annotated arguments.
-            # skips nonetype args, those will get handled later if they are an issue.
-            if arg in annots and value is not None:
-                check_type(f"{self.typing_function.__name__}({arg})", value, annots[arg])
-        # call the typing_function and ignore any return value.
-        # the typing_function must raise an error to have an effect.
-        self.typing_function(**kwargs)
-        # return a tuple of the target, the name, and the kwargs.
-        return (self.target, self.name, kwargs)
-    def __eq__(self, other):
+        return len(message) == 3 and \
+                isinstance(message[1], str) and \
+                isinstance(message[2], dict) and \
+                message[1] in self.mapping
+
+    def handle(self, message: Tuple) -> Tuple:
         """
-        Do not allow ==.
+        If the message is well-formed and an applicable function exists for the
+        given message, calls that function and returns a single-element tuple 
+        `(result,)`, where `result` is the return value of the function.
+        Otherwise, returns an empty tuple. Note that `(result,)` is truthy and
+        an empty tuple is falsy.
         """
-        raise NotImplementedError
-    def __hash__(self) -> int:
-        """
-        Do not allow hashing.
-        """
-        raise NotImplementedError
-    def __str__(self):
-        """
-        Return the name for str().
-        """
-        return self.name
-    def __setarr__(self, *_):
-        """
-        Do not allow assignment to members of this class in order to make it immutable
-        """
-        raise NotImplementedError
-    def __delattr__(self, *_):
-        """
-        Do not allow deletion of members of this class in order to make it immutable
-        """
-        raise NotImplementedError
+        if self.can_handle(message):
+            return (self.mapping.get(message[1])(**message[2]),)
+        return ()

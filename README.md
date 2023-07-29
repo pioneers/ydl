@@ -10,7 +10,3 @@ You can install YDL from PyPI:
 ```
 python -m pip install ydl-ipc
 ```
-
-## Documentation
-
-Check out the tutorial in the docs folder!
